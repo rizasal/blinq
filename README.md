@@ -46,7 +46,7 @@ During a call the break timer keeps counting (screen time is still screen time) 
 | Sit up straight reminder | every 15 min |
 | Blink reminder | every 10 min |
 
-Each reminder can have a custom message (leave it blank to rotate built-in tips) and its own sound.
+Each reminder can have a custom message (leave it blank to rotate built-in tips), its own sound, a display style (**Bar**, a centred **Card**, or **Full screen**) and an on-screen duration (default 6 sec).
 
 ## Testing
 
