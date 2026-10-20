@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:goaway}",
+            "name": "Debug GoAway",
+            "target": "GoAway",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug GoAway"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:goaway}",
+            "name": "Release GoAway",
+            "target": "GoAway",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release GoAway"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:goaway}",
+            "name": "Debug Blinq",
+            "target": "Blinq",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Blinq"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:goaway}",
+            "name": "Release Blinq",
+            "target": "Blinq",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Blinq"
+        }
+    ]
+}
