@@ -7,8 +7,8 @@ enum Sounds {
         ("warn", "Break warning", "bell", .teal, "Tink"),
         ("breakStart", "Break starts", "cup.and.saucer", .indigo, "Glass"),
         ("breakEnd", "Break ends", "checkmark", .green, "Hero"),
-        ("posture", "Sit up straight", "figure.stand", .orange, "Pop"),
-        ("blink", "Blink your eyes", "eye", .cyan, "Purr"),
+        ("posture", "Sit up straight", "figure.stand", Palette.apricot, "Pop"),
+        ("blink", "Blink your eyes", "eye", Palette.sky, "Purr"),
     ]
     static func name(_ key: String) -> String {
         UserDefaults.standard.string(forKey: "snd_" + key) ?? events.first { $0.key == key }?.def ?? "None"

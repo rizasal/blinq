@@ -53,7 +53,7 @@ Each reminder can have a custom message (leave it blank to rotate built-in tips)
 The menu has a **Test** submenu to trigger the heads-up bar, a full break, or each nudge immediately. You can also fire a nudge at launch:
 
 ```sh
-BLINQ_TEST=blink ./Blinq.app/Contents/MacOS/Blinq   # or posture
+BLINQ_TEST=blink ./Blinq.app/Contents/MacOS/Blinq   # or posture, heads, break
 ```
 
 ## Project layout

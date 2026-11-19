@@ -3,15 +3,15 @@ import AppKit
 
 // Lightweight reminders (no blackout): a toast at the top of the screen.
 struct NudgeKind {
-    let key: String, name: String, icon: String, color: Color, defaultMin: Int, messages: [String]
+    let key: String, name: String, icon: String, color: Color, defaultMin: Int, doneLabel: String, messages: [String]
     static let all = [
-        NudgeKind(key: "posture", name: "Sit up straight", icon: "figure.stand", color: .orange, defaultMin: 15, messages: [
+        NudgeKind(key: "posture", name: "Sit up straight", icon: "figure.stand", color: Palette.apricot, defaultMin: 15, doneLabel: "Sitting tall", messages: [
             "Sit up straight — shoulders back, chin level",
             "Check your posture: feet flat, back supported",
             "Unclench your jaw and drop your shoulders",
             "Straighten up — screen at eye level",
         ]),
-        NudgeKind(key: "blink", name: "Blink your eyes", icon: "eye", color: .cyan, defaultMin: 10, messages: [
+        NudgeKind(key: "blink", name: "Blink your eyes", icon: "eye", color: Palette.sky, defaultMin: 10, doneLabel: "Blinked", messages: [
             "Blink slowly 10 times",
             "Close your eyes for a moment",
             "Blink — your eyes will thank you",
@@ -19,6 +19,9 @@ struct NudgeKind {
         ]),
     ]
     var d: UserDefaults { .standard }
+    /// Nudges acted on today (reset by BreakScheduler.rollDay).
+    static func markDone(_ key: String) { let d = UserDefaults.standard; d.set(d.integer(forKey: "done_" + key) + 1, forKey: "done_" + key) }
+    static var doneToday: Int { all.reduce(0) { $0 + UserDefaults.standard.integer(forKey: "done_" + $1.key) } }
     var on: Bool { d.object(forKey: key + "On") as? Bool ?? true }
     var minutes: Int { let m = d.integer(forKey: key + "Min"); return m > 0 ? m : defaultMin }
     var style: NudgeStyle { NudgeStyle(rawValue: d.string(forKey: key + "Style") ?? "") ?? .bar }
@@ -59,7 +62,7 @@ final class Toast {
         let close: () -> Void = { [weak self] in self?.hide() }
         Sounds.play(k.key)
         switch k.style {
-        case .bar: bar.show(size: NSSize(width: 484, height: 84)) { ToastView(kind: k, message: msg, secs: secs, dismiss: close) }
+        case .bar: bar.show(size: NSSize(width: 544, height: 88)) { ToastView(kind: k, message: msg, secs: secs, dismiss: close) }
         case .card: panels.show(full: false) { NudgeCardView(kind: k, message: msg, secs: secs, dismiss: close) }
         case .full: panels.show(full: true) { NudgeFullView(kind: k, message: msg, secs: secs, dismiss: close) }
         }
@@ -98,18 +101,76 @@ final class ScreenPanels {
     }
 }
 
-/// Bar that drains over the nudge's on-screen time.
+/// Line that drains over the nudge's on-screen time.
 struct DrainBar: View {
     let secs: Int, color: Color
     @State private var p = 1.0
     var body: some View {
         GeometryReader { g in
-            Capsule().fill(.primary.opacity(0.08)).overlay(alignment: .leading) {
-                Capsule().fill(color).frame(width: g.size.width * p)
+            Capsule().fill(.primary.opacity(0.07)).overlay(alignment: .leading) {
+                Capsule().fill(color.opacity(0.8)).frame(width: g.size.width * p)
             }
         }
-        .frame(height: 4)
+        .frame(height: 3)
         .onAppear { withAnimation(.linear(duration: Double(secs))) { p = 0 } }
+    }
+}
+
+/// Animated glyph: an eye that blinks, or a figure that straightens up.
+struct NudgeIcon: View {
+    let kind: NudgeKind, size: CGFloat
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            ZStack {
+                Circle().fill(kind.color.gradient)
+                if kind.key == "blink" {
+                    Eye(open: blinkOpen(t), color: .white, pupil: .white.opacity(0.35)).frame(width: size * 0.56, height: size * 0.32)
+                } else {
+                    let c = t.truncatingRemainder(dividingBy: 3.2)
+                    let tilt = c < 1 ? -14 * (1 - c) : c > 2.6 ? -14 * (c - 2.6) / 0.6 : 0
+                    Image(systemName: kind.icon).font(.system(size: size * 0.46, weight: .semibold)).foregroundStyle(.white)
+                        .rotationEffect(.degrees(tilt), anchor: .bottom)
+                }
+            }
+            .frame(width: size, height: size)
+            .shadow(color: kind.color.opacity(0.35), radius: size / 8, y: size / 16)
+        }
+    }
+}
+
+/// "Done" is the main action and counts toward today's stats; × just dismisses.
+struct NudgeActions: View {
+    let kind: NudgeKind, dismiss: () -> Void
+    var large = false
+    @State private var done = false
+    var body: some View {
+        HStack(spacing: 8) {
+            if done {
+                Label("Nice", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: large ? 17 : 13, weight: .semibold))
+                    .foregroundStyle(large ? .white : kind.color)
+                    .padding(.horizontal, large ? 22 : 14).padding(.vertical, large ? 12 : 8)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            } else if large {
+                GhostButton(title: "Not now", icon: "xmark", action: dismiss)
+                Button(action: finish) {
+                    Label(kind.doneLabel, systemImage: "checkmark").font(.system(size: 16, weight: .semibold))
+                        .padding(.horizontal, 24).padding(.vertical, 12)
+                        .background(Palette.paper, in: Capsule()).foregroundStyle(Palette.ink)
+                        .contentShape(Capsule())
+                }.buttonStyle(.plain)
+            } else {
+                BarButton(title: kind.doneLabel, icon: "checkmark", tint: kind.color, filled: true, action: finish)
+                CloseButton(help: "Dismiss", action: dismiss)
+            }
+        }
+        .animation(.spring(duration: 0.35), value: done)
+    }
+    func finish() {
+        guard !done else { return }
+        NudgeKind.markDone(kind.key); done = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
     }
 }
 
@@ -117,24 +178,22 @@ struct NudgeCardView: View {
     let kind: NudgeKind, message: String, secs: Int, dismiss: () -> Void
     @State private var appear = false
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: kind.icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 72, height: 72).background(kind.color.gradient, in: Circle())
-                .shadow(color: kind.color.opacity(0.4), radius: 10, y: 4)
+        VStack(spacing: 18) {
+            NudgeIcon(kind: kind, size: 76)
             VStack(spacing: 6) {
-                Text(kind.name).font(.system(size: 13, weight: .semibold)).textCase(.uppercase).opacity(0.55)
+                Text(kind.name).font(.system(size: 12, weight: .semibold)).tracking(1).textCase(.uppercase).opacity(0.5)
                 Text(message).font(.system(size: 20, weight: .semibold, design: .rounded)).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            DrainBar(secs: secs, color: kind.color).padding(.horizontal, 30)
-            BarButton(title: "Skip", filled: false, action: dismiss)
+            NudgeActions(kind: kind, dismiss: dismiss).frame(height: 34)
+            DrainBar(secs: secs, color: kind.color).padding(.horizontal, 40)
         }
-        .foregroundStyle(.black.opacity(0.85))
-        .padding(26)
-        .frame(width: 420)
+        .foregroundStyle(Palette.ink)
+        .padding(.horizontal, 28).padding(.top, 28).padding(.bottom, 22)
+        .frame(width: 400)
         .background {
             RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial).environment(\.colorScheme, .light)
-            RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.white.opacity(0.7))
+            RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Palette.paper.opacity(0.8))
         }
         .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(.black.opacity(0.06)))
         .shadow(color: .black.opacity(0.18), radius: 18, y: 6)
@@ -147,60 +206,43 @@ struct NudgeCardView: View {
 struct NudgeFullView: View {
     let kind: NudgeKind, message: String, secs: Int, dismiss: () -> Void
     @State private var appear = false
-    @State private var breathe = false
     var body: some View {
         ZStack {
-            RadialGradient(colors: [kind.color.opacity(0.35), .black.opacity(0.35)], center: .center, startRadius: 40, endRadius: 900).ignoresSafeArea()
-            VStack(spacing: 28) {
-                Image(systemName: kind.icon).font(.system(size: 64, weight: .light))
-                    .frame(width: 150, height: 150)
-                    .background(Circle().fill(kind.color.opacity(0.3)))
-                    .scaleEffect(breathe ? 1.08 : 0.96)
+            RadialGradient(colors: [kind.color.opacity(0.3), Palette.night.opacity(0.7)], center: .center, startRadius: 40, endRadius: 900).ignoresSafeArea()
+            VStack(spacing: 30) {
+                NudgeIcon(kind: kind, size: 150)
                 VStack(spacing: 10) {
-                    Text(kind.name).font(.system(size: 16, weight: .semibold)).textCase(.uppercase).opacity(0.7)
+                    Text(kind.name).font(.system(size: 14, weight: .semibold)).tracking(2).textCase(.uppercase).opacity(0.6)
                     Text(message).font(.system(size: 40, weight: .semibold, design: .rounded)).multilineTextAlignment(.center)
                 }
-                DrainBar(secs: secs, color: .white).frame(width: 320)
-                PillButton(title: "Skip", icon: "forward.end", action: dismiss)
+                NudgeActions(kind: kind, dismiss: dismiss, large: true).frame(height: 48)
+                DrainBar(secs: secs, color: .white).frame(width: 280)
             }
             .foregroundStyle(.white)
             .scaleEffect(appear ? 1 : 0.94).opacity(appear ? 1 : 0)
         }
-        .onAppear {
-            withAnimation(.spring(duration: 0.6)) { appear = true }
-            withAnimation(.easeInOut(duration: 2).repeatForever()) { breathe = true }
-        }
+        .onAppear { withAnimation(.spring(duration: 0.6)) { appear = true } }
     }
 }
 
 struct ToastView: View {
     let kind: NudgeKind, message: String, secs: Int, dismiss: () -> Void
-    @State private var bounce = false
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: kind.icon).font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white).frame(width: 38, height: 38).background(kind.color.opacity(0.85).gradient, in: Circle())
-                .scaleEffect(bounce ? 1.08 : 1)
+        HStack(spacing: 12) {
+            NudgeIcon(kind: kind, size: 40)
             VStack(alignment: .leading, spacing: 1) {
-                Text(kind.name).font(.system(size: 12, weight: .semibold)).opacity(0.65).textCase(.uppercase)
-                Text(message).font(.system(size: 15, weight: .medium, design: .rounded)).lineLimit(1)
-                DrainBar(secs: secs, color: kind.color).frame(width: 220).padding(.top, 4)
+                Text(kind.name).font(.system(size: 11, weight: .semibold)).tracking(0.5).opacity(0.5).textCase(.uppercase)
+                Text(message).font(.system(size: 14, weight: .medium, design: .rounded)).lineLimit(1)
+                DrainBar(secs: secs, color: kind.color).frame(width: 180).padding(.top, 4)
             }
-            Spacer(minLength: 0)
-            BarButton(title: "Skip", filled: false, action: dismiss)
+            Spacer(minLength: 6)
+            NudgeActions(kind: kind, dismiss: dismiss)
         }
-        .foregroundStyle(.black.opacity(0.85))
-        .padding(.horizontal, 12)
-        .frame(width: 460, height: 60)
-        .background {
-            Capsule().fill(.ultraThinMaterial).environment(\.colorScheme, .light)
-            Capsule().fill(.white.opacity(0.7))
-        }
-        .overlay(Capsule().stroke(.black.opacity(0.06)))
-        .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .foregroundStyle(Palette.ink)
+        .padding(.leading, 12).padding(.trailing, 14)
+        .frame(width: 520, height: 64)
+        .background(GlassCapsule())
         .padding(.bottom, 4)
-        .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatCount(3, autoreverses: true)) { bounce = true } }
     }
 }
 

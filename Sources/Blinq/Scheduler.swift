@@ -9,6 +9,10 @@ final class BreakScheduler: NSObject, ObservableObject, UNUserNotificationCenter
     @Published var workSecs = 0
     @Published var breakLeft = 0
     @Published var pausedLeft = 0
+    @Published var breakTotal = 0
+    @Published var justFinished = false
+    @Published var activity = Activity.all[0]
+    @Published var activityStart = Date()
     @AppStorage("workMin") var workMin = 20
     @AppStorage("breakSec") var breakSec = 20
     @AppStorage("idleMin") var idleMin = 5
@@ -23,10 +27,10 @@ final class BreakScheduler: NSObject, ObservableObject, UNUserNotificationCenter
     @AppStorage("breaksTaken") var taken = 0
     @AppStorage("breaksSkipped") var skipped = 0
     @AppStorage("statsDay") var statsDay = ""
-    var stats: String { rollDay(); return "Today: \(taken) taken · \(skipped) skipped" }
+    var stats: String { rollDay(); return "Today: \(taken) breaks · \(skipped) skipped · \(NudgeKind.doneToday) nudges done" }
     func rollDay() {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; let today = f.string(from: Date())
-        if statsDay != today { statsDay = today; taken = 0; skipped = 0 }
+        if statsDay != today { statsDay = today; taken = 0; skipped = 0; NudgeKind.all.forEach { UserDefaults.standard.removeObject(forKey: "done_" + $0.key) } }
     }
 
     override init() {
@@ -40,7 +44,13 @@ final class BreakScheduler: NSObject, ObservableObject, UNUserNotificationCenter
         let d = DistributedNotificationCenter.default()
         d.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in self?.away() }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.away() }
-        if let t = ProcessInfo.processInfo.environment["BLINQ_TEST"], let k = NudgeKind.all.first(where: { $0.key == t }) { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.nudges.fire(k) } }
+        if let t = ProcessInfo.processInfo.environment["BLINQ_TEST"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if let k = NudgeKind.all.first(where: { $0.key == t }) { self.nudges.fire(k) }
+                else if t == "break" { self.startBreak() }
+                else if t == "heads" { self.workSecs = self.interval - HeadsUp.lead }
+            }
+        }
         let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.step() }
         RunLoop.main.add(t, forMode: .common)  // keep ticking while menus are open
         timer = t
@@ -79,7 +89,7 @@ final class BreakScheduler: NSObject, ObservableObject, UNUserNotificationCenter
             workSecs += 1
             if state == .working && !heads.visible && workSecs < interval - HeadsUp.lead - 5 { nudges.tick() }
             if state == .working && workSecs >= interval { startBreak() }
-            else if state == .working && workSecs >= interval - HeadsUp.lead { if !heads.visible { heads.show(self) } }
+            else if state == .working && workSecs >= interval - HeadsUp.lead { if !heads.visible { pickActivity(); heads.show(self) } }
             else { heads.hide() }
         }
     }
@@ -93,10 +103,20 @@ final class BreakScheduler: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     func startBreak() {
-        heads.hide(); state = .onBreak; breakLeft = breakSec; Sounds.play("breakStart")
+        if !heads.visible { pickActivity() }  // otherwise keep the one the heads-up promised
+        heads.hide(); state = .onBreak; breakLeft = breakSec; breakTotal = breakSec
+        activityStart = Date(); justFinished = false; Sounds.play("breakStart")
         overlay.show(self)
     }
-    func endBreak() { rollDay(); if state == .onBreak { taken += 1 }; overlay.close(); workSecs = 0; nudges.reset(); state = .working }
+    func endBreak() {
+        rollDay()
+        let done = state == .onBreak
+        if done { taken += 1; justFinished = true }
+        overlay.close(after: done ? 2 : 0); workSecs = 0; nudges.reset(); state = .working
+    }
+    func extend() { breakLeft += 30; breakTotal += 30 }
+    func switchTo(_ a: Activity) { activity = a; activityStart = Date() }
+    func pickActivity() { activity = Activity.all.filter { $0 != activity }.randomElement()! }
     func skip() { heads.hide(); rollDay(); skipped += 1; overlay.close(); workSecs = interval - skipMin * 60; state = .working }
     func snooze() { heads.hide(); overlay.close(); if state == .onBreak { state = .working; workSecs = interval - snoozeMin * 60 } else { workSecs = max(0, workSecs - snoozeMin * 60) } }
     func pause(_ m: Int) { heads.hide(); overlay.close(); state = .paused; pausedLeft = m * 60 }
